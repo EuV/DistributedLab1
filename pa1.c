@@ -4,9 +4,7 @@
 #include <unistd.h>
 #include  <sys/types.h>
 
-
 #define NUMBER_OF_PROCESS 6
-
 
 int getNumberOfProcess( int argc, char * const argv[] );
 int getopt( int argc, char * const argv[], const char * optstring );
@@ -31,6 +29,7 @@ int main( int argc, char * argv[] ) {
 
 	return 0;
 }
+
 
 void  ChildProcess() {
 	printf("*** Child process is done ***\n");
