@@ -2,22 +2,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include  <sys/types.h>
+
+
+#define NUMBER_OF_PROCESS 6
+
 
 int getNumberOfProcess( int argc, char * const argv[] );
 int getopt( int argc, char * const argv[], const char * optstring );
+void ChildProcess();
+void ParentProcess();
 extern char *optarg;
 extern int opterr;
-
-const int NUMBER_OF_PROCESS = 6;
 
 
 int main( int argc, char * argv[] ) {
 
 	int numberOfProcess = getNumberOfProcess( argc, argv );
 
-	printf( "Number of child process: %d\n", numberOfProcess );
+	for ( int i = 0; i < numberOfProcess; i++ ) {
+		if ( fork() == 0 ) {
+			ChildProcess();
+			break; // Not to do fork() from the child
+		} else if ( i == numberOfProcess - 1 ) { // The last child has been created
+			ParentProcess();
+		}
+	}
 
 	return 0;
+}
+
+void  ChildProcess() {
+	printf("*** Child process is done ***\n");
+}
+
+
+void  ParentProcess() {
+	printf("*** Parent is done ***\n");
 }
 
 
