@@ -80,22 +80,28 @@ void ChildProcess() {
 
 	pid_t PID = getpid();
 	pid_t pPID = getppid();
-	char buf[ BUF_SIZE ];
-
-	// "Process %1d (pid %5d, parent %5d) has STARTED\n";
-	sprintf( buf, log_started_fmt, localId, PID, pPID );
-	write( 1, buf, strlen( buf ) );
-	write( events, buf, strlen( buf ) );
 
 
+	// STARTED
 	Message msg;
+	msg.s_header.s_magic = MESSAGE_MAGIC;
+	msg.s_header.s_payload_len = strlen( log_started_fmt );
+	msg.s_header.s_type = STARTED;
+	sprintf( msg.s_payload, log_started_fmt, localId, PID, pPID );
+	write( 1, msg.s_payload, strlen( msg.s_payload ) );
+	write( events, msg.s_payload, strlen( msg.s_payload ) );
 	send_multicast( NULL, &msg );
 
 
-	// "Process %1d has DONE its work\n";
-	sprintf( buf, log_done_fmt, localId );
-	write( 1, buf, strlen( buf ) );
-	write( events, buf, strlen( buf ) );
+	// DONE
+	msg.s_header.s_magic = MESSAGE_MAGIC;
+	msg.s_header.s_payload_len = strlen( log_done_fmt );
+	msg.s_header.s_type = DONE;
+	sprintf( msg.s_payload, log_done_fmt, localId );
+	write( 1, msg.s_payload, strlen( msg.s_payload ) );
+	write( events, msg.s_payload, strlen( msg.s_payload ) );
+	send_multicast( NULL, &msg );
+
 
 	// Close other pipes
 	for ( int i = 0; i <= nProc; i++ ) {
