@@ -11,24 +11,35 @@
 #include <fcntl.h>
 #include <getopt.h>
 
-#define NUMBER_OF_PROCESS 6
+#define NUMBER_OF_PROCESS 2
 #define BUF_SIZE 100
 
 int getNumberOfProcess( int argc, char * const argv[] );
 void ChildProcess( local_id localId );
 void ParentProcess( local_id localId );
+int pipes[ MAX_PROCESS_ID ][ MAX_PROCESS_ID ][ 2 ];
 int events;
+int nProc;
 
 int main( int argc, char * argv[] ) {
 
 	events = open( evengs_log, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND );
-	int numberOfProcess = getNumberOfProcess( argc, argv );
+	nProc = getNumberOfProcess( argc, argv );
 
-	for ( int i = 1; i <= numberOfProcess; i++ ) {
+	// Create fully-connected topology with excess of duplex pipes
+	for ( int row = 0; row <= nProc; row++ ) {
+		for ( int col = 0; col <= nProc; col++ ) {
+			if ( row == col ) continue;
+			pipe( pipes[ row ][ col ] );
+		}
+	}
+
+	// Create a brood of process
+	for ( int i = 1; i <= nProc; i++ ) {
 		if ( fork() == 0 ) {
 			ChildProcess( i );
 			break; // Not to do fork() from the child
-		} else if ( i == numberOfProcess ) { // The last child has been created
+		} else if ( i == nProc ) { // The last child has been created
 			ParentProcess( PARENT_ID );
 		}
 	}
@@ -39,6 +50,31 @@ int main( int argc, char * argv[] ) {
 
 void ChildProcess( local_id localId ) {
 
+	//    | 0 | i | 2 | 3
+	// -------------------
+	//  0 | - | r | - | -
+	// -------------------
+	//  i | w | - | w | w
+	// -------------------
+	//  2 | - | r | - | -
+	// -------------------
+	//  3 | - | r | - | -
+
+	// Close unused pipes
+	for ( int row = 0; row <= nProc; row++ ) {
+		for ( int col = 0; col <= nProc; col++ ) {
+			if ( row == col ) continue;
+			if ( row == localId ) {
+				close( pipes[ row ][ col ][ 0 ] );
+			} else {
+				close( pipes[ row ][ col ][ 1 ] );
+				if ( col != localId ) {
+					close( pipes[ row ][ col ][ 0 ] );
+				}
+			}
+		}
+	}
+
 	pid_t PID = getpid();
 	pid_t pPID = getppid();
 	char buf[ BUF_SIZE ];
@@ -48,18 +84,59 @@ void ChildProcess( local_id localId ) {
 	write( 1, buf, strlen( buf ) );
 	write( events, buf, strlen( buf ) );
 
+	// Send a test message to the parent
+	write( pipes[ localId ][ PARENT_ID ][ 1 ], "OK", 3 );
+
 	// "Process %1d has DONE its work\n";
 	sprintf( buf, log_done_fmt, localId );
 	write( 1, buf, strlen( buf ) );
 	write( events, buf, strlen( buf ) );
+
+	// Close other pipes
+	for ( int i = 0; i <= nProc; i++ ) {
+		if ( i == localId ) continue;
+		close( pipes[ localId ][ i ][ 1 ] );
+		close( pipes[ i ][ localId ][ 0 ] );
+	}
 }
 
 
 void ParentProcess( local_id localId ) {
 
+	//    | p | 1 | 2 | 3
+	// -------------------
+	//  p | - | - | - | -
+	// -------------------
+	//  1 | r | - | - | -
+	// -------------------
+	//  2 | r | - | - | -
+	// -------------------
+	//  3 | r | - | - | -
+
+	// Close unused pipes
+	for ( int row = 0; row <= nProc; row++ ) {
+		for ( int col = 1; col <= nProc; col++ ) {
+			if ( row == col ) continue;
+			close( pipes[ row ][ col ][ 0 ] );
+			close( pipes[ row ][ col ][ 1 ] );
+		}
+		close( pipes[ row ][ localId ][ 1 ] );
+	}
+
+	// Receive test message from all the children
+	for ( int i = 1; i <= nProc; i++ ) {
+		char tb[3];
+		read( pipes[ i ][ 0 ][ 0 ], &tb, 3 );
+		printf( "-%1d-Receive message: %3s\n", i, tb );
+	}
+
 	// Waiting for all the children
-	int status;
-	while( wait( &status ) != -1 ) { }
+	while( wait( NULL ) != -1 ) { }
+
+	// Close other pipes
+	for ( int row = 1; row <= nProc; row++ ) {
+		close( pipes[ row ][ 0 ][ 0 ] );
+	}
 
 	printf("*** Parent is done ***\n");
 }
