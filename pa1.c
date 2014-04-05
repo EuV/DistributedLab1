@@ -31,7 +31,7 @@ int main( int argc, char * argv[] ) {
 			ChildProcess( i );
 			break; // Not to do fork() from the child
 		} else if ( i == numberOfProcess ) { // The last child has been created
-			ParentProcess( 0 );
+			ParentProcess( PARENT_ID );
 		}
 	}
 
@@ -39,7 +39,7 @@ int main( int argc, char * argv[] ) {
 }
 
 
-void  ChildProcess( local_id localId ) {
+void ChildProcess( local_id localId ) {
 
 	pid_t PID = getpid();
 	pid_t pPID = getppid();
@@ -57,7 +57,7 @@ void  ChildProcess( local_id localId ) {
 }
 
 
-void  ParentProcess( local_id localId ) {
+void ParentProcess( local_id localId ) {
 
 	// Waiting for all the children
 	int status;
@@ -82,7 +82,7 @@ int getNumberOfProcess( int argc, char * const argv[] ) {
 		};
 	};
 
-	if ( numberOfProcess == 0 || numberOfProcess > 10 ) {
+	if ( numberOfProcess == 0 || numberOfProcess > MAX_PROCESS_ID ) {
 		printf( "Set the default value for the number of child process: %d\n", NUMBER_OF_PROCESS );
 		numberOfProcess = NUMBER_OF_PROCESS;
 	}
