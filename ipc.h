@@ -1,114 +1,112 @@
 /**
  * @file     ipc.h
  * @Author   Michael Kosyakov and Evgeniy Ivanov (ifmo.distributedclass@gmail.com)
- * @date     September, 2013
+ * @date     March, 2014
  * @brief    A simple IPC library for programming assignments
  *
+ * Students must not modify this file!
  */
 
-#ifndef IFMO_DISTRIBUTED_CLASS__IPC__H
-#define IFMO_DISTRIBUTED_CLASS__IPC__H
+#ifndef __IFMO_DISTRIBUTED_CLASS_IPC__H
+#define __IFMO_DISTRIBUTED_CLASS_IPC__H
 
 #include <stddef.h>
+#include <stdint.h>
 
-// Might be common.h from any PA, please adjust include paths
-#include "common.h"
+//------------------------------------------------------------------------------
 
-/** A duplex connection to any process.
- *
- * Each instance of this structure should be used by single process only.
- */
+typedef int8_t local_id;
+typedef int16_t timestamp_t;
+
+enum {
+    MESSAGE_MAGIC = 0xAFAF,
+    MAX_MESSAGE_LEN = 4096,
+    PARENT_ID = 0,
+    MAX_PROCESS_ID = 15
+};
+
+typedef enum {
+    STARTED = 0,     ///< message with string (doesn't include trailing '\0')
+    DONE,            ///< message with string (doesn't include trailing '\0')
+    ACK,             ///< empty message
+    STOP,            ///< empty message
+    TRANSFER,        ///< message with TransferOrder
+    BALANCE_HISTORY  ///< message with BalanceHistory
+} MessageType;
+
 typedef struct {
-    int s_sendfd;
-    int s_recvfd;
-    local_id s_id; ///< ID of the process we connected to
-} Connection;
+    uint16_t     s_magic;        ///< magic signature, must be MESSAGE_MAGIC
+    uint16_t     s_payload_len;  ///< length of payload
+    int16_t      s_type;         ///< type of the message
+    timestamp_t  s_local_time;   ///< set by sender, depends on particular PA:
+                                 ///< physical time in PA2 or Lamport's scalar
+                                 ///< time in PA3
+} __attribute__((packed)) MessageHeader;
 
-/** Connections between single process and all other processes.
- *
- */
-typedef struct Connector {
-    /** Connection array of size s_nconnections.
-     *
-     * By convention connection[0] should be connected to parrent.
-     * Contents of s_connections[s_self_id] is undefined.
-     */
-    Connection * s_connections;
-    int s_nconnections;
-    local_id s_self_id;
-} Connector;
+enum {
+    MAX_PAYLOAD_LEN = MAX_MESSAGE_LEN - sizeof(MessageHeader)
+};
 
-/** Message used by all IPC routines.
- *
- */
 typedef struct {
     MessageHeader s_header;
-    void * s_payload;
-} Message;
+    char s_payload[MAX_PAYLOAD_LEN]; ///< Must be used as a buffer, unused "tail"
+                                     ///< shouldn't be transfered
+} __attribute__((packed)) Message;
 
 //------------------------------------------------------------------------------
 
-/** Helper function, automatically sets some Message fields.
- * 
- * Should initialize message length, type, payload and magic.
- */
-void fill_message(Message * msg, MessageType type, void * payload,
-                  size_t psize);
-
-//------------------------------------------------------------------------------
-
-/** Send message to process specified by id.
+/** Send a message to the process specified by id.
  *
- * @param self    Connector of process which sends the message.
- * @param dst     ID of receiver (self->s_connections[dst]).
- * @param msg     Message to send.
+ * @param self    Any data structure implemented by students to perform I/O
+ * @param dst     ID of recepient
+ * @param msg     Message to send
+ *
+ * @return 0 on success, any non-zero value on error
  */
-int send_to(const Connector * self, local_id dst, const Message * msg);
+int send(void * self, local_id dst, const Message * msg);
+
+//------------------------------------------------------------------------------
 
 /** Send multicast message.
  *
- * Sends msg to all s_connections of self including parrent, except self itself
- * (self->s_connections[self->s_self_id]). Stops on the first error.
+ * Send msg to all other processes including parrent.
+ * Should stop on the first error.
  * 
- * @param self    Connector of process which send the message.
+ * @param self    Any data structure implemented by students to perform I/O
  * @param msg     Message to multicast.
  *
- * @return 0 on success, -1 otherwise.
+ * @return 0 on success, any non-zero value on error
  */
-int send_all(const Connector * self, const Message * msg);
-
-/** Receive a full message from process specified by id.
- *
- * Might block depending on underlying fd settings and when only part
- * of the message is available in the pipe.
- *
- * @param msg must be freed by client.
- * @return 0 on success, -1 on error (errno is set to EAGAIN if
- * O_NONBLOCK is set and no data is available for reading).
- */
-int receive_from(const Connector * self, local_id from, Message ** msg);
+int send_multicast(void * self, const Message * msg);
 
 //------------------------------------------------------------------------------
 
-enum {
-    BLOCKING = 0,
-    NONBLOCKING = 1
-};
-
-/** Create fully connected topology to be used in IPC.
+/** Receive a message from the process specified by id.
  *
- * Creates an array of Connectors, which form fully connected topology.
- * Each connector.s_self_id is set to the index in connectors array. Clients
- * should use these ids as local ids for each process.
- * Connector[0] should be used for parent process.
- * @see Connector
+ * Might block depending on IPC settings.
  *
- * @param connector to be freed by client.
- * @param n number of connectors to creat.
- * @param nonblocking if BLOCKING, then O_NONBLOCK should be set for read fds,
- * for write fds it depends on implementation.
+ * @param self    Any data structure implemented by students to perform I/O
+ * @param from    ID of the process to receive message from
+ * @param msg     Message structure allocated by the caller
+ *
+ * @return 0 on success, any non-zero value on error
  */
-int creat_fully_connected_topology(Connector ** connectors, size_t n,
-                                   int nonblocking);
+int receive(void * self, local_id from, Message * msg);
 
-#endif // IFMO_DISTRIBUTED_CLASS__IPC__H
+//------------------------------------------------------------------------------
+
+/** Receive a message from any process.
+ *
+ * Receive a message from any process, in case of blocking I/O should be used
+ * with extra care to avoid deadlocks.
+ *
+ * @param self    Any data structure implemented by students to perform I/O
+ * @param msg     Message structure allocated by the caller
+ *
+ * @return 0 on success, any non-zero value on error
+ */
+int receive_any(void * self, Message * msg);
+
+//------------------------------------------------------------------------------
+
+#endif // __IFMO_DISTRIBUTED_CLASS_IPC__H

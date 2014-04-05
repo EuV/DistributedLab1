@@ -1,4 +1,6 @@
 #include "pa1.h"
+#include "ipc.h"
+#include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
