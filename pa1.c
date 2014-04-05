@@ -15,11 +15,12 @@
 #define BUF_SIZE 100
 
 int getNumberOfProcess( int argc, char * const argv[] );
-void ChildProcess( local_id localId );
-void ParentProcess( local_id localId );
+void ChildProcess();
+void ParentProcess();
 int pipes[ MAX_PROCESS_ID ][ MAX_PROCESS_ID ][ 2 ];
 int events;
 int nProc;
+local_id localId;
 
 int main( int argc, char * argv[] ) {
 
@@ -37,10 +38,12 @@ int main( int argc, char * argv[] ) {
 	// Create a brood of process
 	for ( int i = 1; i <= nProc; i++ ) {
 		if ( fork() == 0 ) {
-			ChildProcess( i );
+			localId = i;
+			ChildProcess();
 			break; // Not to do fork() from the child
 		} else if ( i == nProc ) { // The last child has been created
-			ParentProcess( PARENT_ID );
+			localId = PARENT_ID;
+			ParentProcess();
 		}
 	}
 
@@ -48,7 +51,7 @@ int main( int argc, char * argv[] ) {
 }
 
 
-void ChildProcess( local_id localId ) {
+void ChildProcess() {
 
 	//    | 0 | i | 2 | 3
 	// -------------------
@@ -84,8 +87,10 @@ void ChildProcess( local_id localId ) {
 	write( 1, buf, strlen( buf ) );
 	write( events, buf, strlen( buf ) );
 
-	// Send a test message to the parent
-	write( pipes[ localId ][ PARENT_ID ][ 1 ], "OK", 3 );
+
+	Message msg;
+	send_multicast( NULL, &msg );
+
 
 	// "Process %1d has DONE its work\n";
 	sprintf( buf, log_done_fmt, localId );
@@ -101,7 +106,7 @@ void ChildProcess( local_id localId ) {
 }
 
 
-void ParentProcess( local_id localId ) {
+void ParentProcess() {
 
 	//    | p | 1 | 2 | 3
 	// -------------------
@@ -163,4 +168,13 @@ int getNumberOfProcess( int argc, char * const argv[] ) {
 	}
 
 	return numberOfProcess;
+}
+
+
+int send_multicast( void * self, const Message * msg ) {
+	for ( int recipient = PARENT_ID; recipient <= nProc; recipient++ ) {
+		if ( recipient == localId ) continue;
+		write( pipes[ localId ][ recipient ][ 1 ], "OK", 3 );
+	}
+	return 0;
 }
