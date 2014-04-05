@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include  <sys/types.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #define NUMBER_OF_PROCESS 6
 
@@ -32,11 +33,16 @@ int main( int argc, char * argv[] ) {
 
 
 void  ChildProcess() {
-	printf("*** Child process is done ***\n");
+	printf( "*** Child process %d is done ***\n", getpid() );
 }
 
 
 void  ParentProcess() {
+
+	// Waiting for all the children
+	int status;
+	while( wait( &status ) != -1 ) { }
+
 	printf("*** Parent is done ***\n");
 }
 
