@@ -9,16 +9,14 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <getopt.h>
 
 #define NUMBER_OF_PROCESS 6
 #define BUF_SIZE 100
 
 int getNumberOfProcess( int argc, char * const argv[] );
-int getopt( int argc, char * const argv[], const char * optstring );
 void ChildProcess( local_id localId );
 void ParentProcess( local_id localId );
-extern char *optarg;
-extern int opterr;
 int events;
 
 int main( int argc, char * argv[] ) {
