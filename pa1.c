@@ -17,7 +17,7 @@
 int getNumberOfProcess( int argc, char * const argv[] );
 void ChildProcess();
 void ParentProcess();
-int pipes[ MAX_PROCESS_ID ][ MAX_PROCESS_ID ][ 2 ];
+int pipes[ MAX_PROCESS_ID + 1 ][ MAX_PROCESS_ID + 1][ 2 ];
 int events;
 int nProc;
 local_id localId;
@@ -85,7 +85,7 @@ void ChildProcess() {
 	// STARTED
 	Message msg;
 	msg.s_header.s_magic = MESSAGE_MAGIC;
-	msg.s_header.s_payload_len = strlen( log_started_fmt );
+	msg.s_header.s_payload_len = strlen( msg.s_payload );
 	msg.s_header.s_type = STARTED;
 	sprintf( msg.s_payload, log_started_fmt, localId, PID, pPID );
 	write( 1, msg.s_payload, strlen( msg.s_payload ) );
@@ -93,9 +93,20 @@ void ChildProcess() {
 	send_multicast( NULL, &msg );
 
 
+	Message receivedMsg;
+	int startedCounter = 0;
+	while ( startedCounter != nProc - 1 ) {
+		receive_any( NULL, &receivedMsg );
+		if ( receivedMsg.s_header.s_type == STARTED ) {
+			startedCounter++;
+			printf("startedCounter = %d, needed: %d\n", startedCounter, nProc - 1 );
+		}
+	}
+
+
 	// DONE
 	msg.s_header.s_magic = MESSAGE_MAGIC;
-	msg.s_header.s_payload_len = strlen( log_done_fmt );
+	msg.s_header.s_payload_len = strlen( msg.s_payload );
 	msg.s_header.s_type = DONE;
 	sprintf( msg.s_payload, log_done_fmt, localId );
 	write( 1, msg.s_payload, strlen( msg.s_payload ) );
@@ -109,6 +120,7 @@ void ChildProcess() {
 		close( pipes[ localId ][ i ][ 1 ] );
 		close( pipes[ i ][ localId ][ 0 ] );
 	}
+
 }
 
 
@@ -134,11 +146,16 @@ void ParentProcess() {
 		close( pipes[ row ][ localId ][ 1 ] );
 	}
 
-	// Receive test message from all the children
-	for ( int i = 1; i <= nProc; i++ ) {
-		char tb[3];
-		read( pipes[ i ][ 0 ][ 0 ], &tb, 3 );
-		printf( "-%1d-Receive message: %3s\n", i, tb );
+
+
+	Message receivedMsg;
+	int startedCounter = 0;
+	while ( startedCounter != nProc ) {
+		receive_any( NULL, &receivedMsg );
+		if ( receivedMsg.s_header.s_type == STARTED ) {
+			startedCounter++;
+			// printf("startedCounter = %d, needed: %d\n", startedCounter, nProc );
+		}
 	}
 
 	// Waiting for all the children
@@ -180,7 +197,23 @@ int getNumberOfProcess( int argc, char * const argv[] ) {
 int send_multicast( void * self, const Message * msg ) {
 	for ( int recipient = PARENT_ID; recipient <= nProc; recipient++ ) {
 		if ( recipient == localId ) continue;
-		write( pipes[ localId ][ recipient ][ 1 ], "OK", 3 );
+		write( pipes[ localId ][ recipient ][ 1 ], msg, sizeof( Message ) );
+		// printf( "Send from %d to %d: %d\n", localId, recipient, (*msg).s_header.s_type );
+	}
+	return 0;
+}
+
+
+int receive_any( void * self, Message * msg ) {
+	for ( int sender = PARENT_ID; sender <= nProc; sender++ ) {
+		// printf( "I am %d and I'm trying to receive message from %d... \n", localId, sender );
+		if ( sender == localId ) continue;
+		ssize_t wasRead = read( pipes[ sender ][ localId ][ 0 ], msg, sizeof( Message ) );
+		// printf( "Receive %d by %d\n", wasRead, localId );
+		if ( wasRead > 0 ) printf( "%d Receive message: %s", localId, (*msg).s_payload );
+		if ( wasRead > 0 ) break;
+		else if ( sender == nProc ) sender = PARENT_ID - 1;
+		// sleep(1);
 	}
 	return 0;
 }
