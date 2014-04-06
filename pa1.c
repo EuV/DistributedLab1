@@ -25,6 +25,7 @@ int eventsLog;
 int pipesLog;
 int nProc;
 local_id localId;
+char logBuf[100];
 
 
 int main( int argc, char * argv[] ) {
@@ -83,9 +84,9 @@ void ChildProcess() {
 
 	// Create STARTED message
 	Message sendMsg;
+	sendMsg.s_header.s_type = STARTED;
 	sendMsg.s_header.s_magic = MESSAGE_MAGIC;
 	sendMsg.s_header.s_payload_len = strlen( sendMsg.s_payload );
-	sendMsg.s_header.s_type = STARTED;
 	sprintf( sendMsg.s_payload, log_started_fmt, localId, PID, pPID );
 
 	// Log STARTED message
@@ -103,11 +104,20 @@ void ChildProcess() {
 	Message receivedMsg;
 	int startedProcCounter = 1; // For this one has already been started
 	while ( startedProcCounter != nProc ) {
-		receive_any( NULL, &receivedMsg );
-		// TODO: if ( receivedMsg.s_header.s_type == STARTED ) { ...
-		// TODO: if ( result != 0 ) { ...
-		startedProcCounter++;
+		int result = receive_any( NULL, &receivedMsg );
+		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == STARTED ) {
+			startedProcCounter++;
+		} else {
+			printf( "Receive error in Process %d (%d)\n", localId, PID );
+			exit( 1 );
+		}
 	}
+
+
+	// Log RECEIVED STARTED message
+	sprintf( logBuf, log_received_all_started_fmt, localId );
+	write( 1, logBuf, strlen( logBuf ) );
+	write( eventsLog, logBuf, strlen( logBuf ) );
 
 
 	// Close other pipes
@@ -138,17 +148,26 @@ void ParentProcess() {
 	Message receivedMsg;
 	int startedProcCounter = 0;
 	while ( startedProcCounter != nProc ) {
-		receive_any( NULL, &receivedMsg );
-		// TODO: if ( receivedMsg.s_header.s_type == STARTED ) { ...
-		// TODO: if ( result != 0 ) { ...
-		startedProcCounter++;
+		int result = receive_any( NULL, &receivedMsg );
+		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == STARTED ) {
+			startedProcCounter++;
+		} else {
+			printf( "Receive error in Parent process\n" );
+			exit( 1 );
+		}
 	}
+
+	// Log RECEIVED STARTED message
+	sprintf( logBuf, log_received_all_started_fmt, localId );
+	write( 1, logBuf, strlen( logBuf ) );
+	write( eventsLog, logBuf, strlen( logBuf ) );
+
 
 	// Waiting for all the children
 	int status;
 	pid_t pid;
 	while ( ( pid = wait( &status ) ) != -1 ) {
-		printf( "Process %d has been done with exit code %d\n", pid, status );
+		// printf( "Process %d has been done with exit code %d\n", pid, status );
 		if( WIFSIGNALED( status ) ) printf( "!!! Interrupted by signal %d !!!\n", WTERMSIG( status ) );
     }
 
