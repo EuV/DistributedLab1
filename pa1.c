@@ -83,18 +83,18 @@ void ChildProcess() {
 	pid_t pPID = getppid();
 
 	// Create STARTED message
-	Message sendMsg;
-	sendMsg.s_header.s_type = STARTED;
-	sendMsg.s_header.s_magic = MESSAGE_MAGIC;
-	sendMsg.s_header.s_payload_len = strlen( sendMsg.s_payload );
-	sprintf( sendMsg.s_payload, log_started_fmt, localId, PID, pPID );
+	Message startedMsg;
+	startedMsg.s_header.s_type = STARTED;
+	startedMsg.s_header.s_magic = MESSAGE_MAGIC;
+	startedMsg.s_header.s_payload_len = strlen( startedMsg.s_payload );
+	sprintf( startedMsg.s_payload, log_started_fmt, localId, PID, pPID );
 
 	// Log STARTED message
-	write( 1, sendMsg.s_payload, strlen( sendMsg.s_payload ) );
-	write( eventsLog, sendMsg.s_payload, strlen( sendMsg.s_payload ) );
+	write( 1, startedMsg.s_payload, strlen( startedMsg.s_payload ) );
+	write( eventsLog, startedMsg.s_payload, strlen( startedMsg.s_payload ) );
 
 	// Send STARTED message to all the neighbours
-	if ( send_multicast( NULL, &sendMsg ) == IPC_FAILURE ) {
+	if ( send_multicast( NULL, &startedMsg ) == IPC_FAILURE ) {
 		printf( "Multicast error in Process %d (%d)\n", localId, PID );
 		exit( 1 );
 	}
@@ -116,6 +116,44 @@ void ChildProcess() {
 
 	// Log RECEIVED STARTED message
 	sprintf( logBuf, log_received_all_started_fmt, localId );
+	write( 1, logBuf, strlen( logBuf ) );
+	write( eventsLog, logBuf, strlen( logBuf ) );
+
+
+
+	// Create DONE message
+	Message doneMsg;
+	doneMsg.s_header.s_type = DONE;
+	doneMsg.s_header.s_magic = MESSAGE_MAGIC;
+	doneMsg.s_header.s_payload_len = strlen( doneMsg.s_payload );
+	sprintf( doneMsg.s_payload, log_done_fmt, localId );
+
+	// Log DONE message
+	write( 1, doneMsg.s_payload, strlen( doneMsg.s_payload ) );
+	write( eventsLog, doneMsg.s_payload, strlen( doneMsg.s_payload ) );
+
+	// Send DONE message to all the neighbours
+	if ( send_multicast( NULL, &doneMsg ) == IPC_FAILURE ) {
+		printf( "Multicast error in Process %d (%d)\n", localId, PID );
+		exit( 1 );
+	}
+
+
+	// Receive DONE message from all the neighbours
+	int doneProcCounter = 1; // For this one has already been started
+	while ( doneProcCounter != nProc ) {
+		int result = receive_any( NULL, &receivedMsg );
+		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == DONE ) {
+			doneProcCounter++;
+		} else {
+			printf( "Receive error in Process %d (%d)\n", localId, PID );
+			exit( 1 );
+		}
+	}
+
+
+	// Log RECEIVED DONE message
+	sprintf( logBuf, log_received_all_done_fmt, localId );
 	write( 1, logBuf, strlen( logBuf ) );
 	write( eventsLog, logBuf, strlen( logBuf ) );
 
@@ -152,13 +190,31 @@ void ParentProcess() {
 		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == STARTED ) {
 			startedProcCounter++;
 		} else {
-			printf( "Receive error in Parent process\n" );
+			printf( "Receive 'started' error in Parent process\n" );
 			exit( 1 );
 		}
 	}
 
 	// Log RECEIVED STARTED message
 	sprintf( logBuf, log_received_all_started_fmt, localId );
+	write( 1, logBuf, strlen( logBuf ) );
+	write( eventsLog, logBuf, strlen( logBuf ) );
+
+
+	// Receive DONE message from all the neighbours
+	int doneProcCounter = 1; // For this one has already been started
+	while ( doneProcCounter != nProc ) {
+		int result = receive_any( NULL, &receivedMsg );
+		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == DONE ) {
+			doneProcCounter++;
+		} else {
+			printf( "Receive 'done' error in Parent process\n" );
+			exit( 1 );
+		}
+	}
+
+	// Log RECEIVED DONE message
+	sprintf( logBuf, log_received_all_done_fmt, localId );
 	write( 1, logBuf, strlen( logBuf ) );
 	write( eventsLog, logBuf, strlen( logBuf ) );
 
@@ -260,11 +316,19 @@ int receive( void * self, local_id from, Message * msg ) {
 
 int receive_any( void * self, Message * msg ) {
 
+	// TODO: not 4Kb reading
 	static local_id sender = PARENT_ID + 1;
 
-	if( sender == localId ) sender++;
+	if( sender == localId ) {
+		if( sender < nProc ) {
+			sender++;
+		} else {
+			sender = PARENT_ID + 1;
+		}
+	}
 
 	// printf( "receive_any by %d proc from %d proc\n", localId, sender );
-
-	return receive( NULL, sender++, msg );
+	int status = receive( NULL, sender++, msg );
+	if( sender > nProc ) sender = PARENT_ID + 1;
+	return status;
 }
