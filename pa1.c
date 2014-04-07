@@ -173,12 +173,17 @@ void ParentProcess() {
 
 	// Close unused pipes
 	for ( int row = 0; row <= nProc; row++ ) {
-		for ( int col = 1; col <= nProc; col++ ) {
+		for ( int col = 0; col <= nProc; col++ ) {
 			if ( row == col ) continue;
-			close( pipes[ row ][ col ][ 0 ] );
-			close( pipes[ row ][ col ][ 1 ] );
+			if ( row == localId ) {
+				close( pipes[ row ][ col ][ 0 ] );
+			} else {
+				close( pipes[ row ][ col ][ 1 ] );
+				if ( col != localId ) {
+					close( pipes[ row ][ col ][ 0 ] );
+				}
+			}
 		}
-		close( pipes[ row ][ localId ][ 1 ] );
 	}
 
 
@@ -228,8 +233,10 @@ void ParentProcess() {
     }
 
 	// Close other pipes
-	for ( int row = 1; row <= nProc; row++ ) {
-		close( pipes[ row ][ 0 ][ 0 ] );
+	for ( int i = 0; i <= nProc; i++ ) {
+		if ( i == localId ) continue;
+		close( pipes[ localId ][ i ][ 1 ] );
+		close( pipes[ i ][ localId ][ 0 ] );
 	}
 
 	printf("*** Parent has been done ***\n");
