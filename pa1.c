@@ -86,12 +86,12 @@ void ChildProcess() {
 	Message startedMsg;
 	startedMsg.s_header.s_type = STARTED;
 	startedMsg.s_header.s_magic = MESSAGE_MAGIC;
+	sprintf( startedMsg.s_payload, log_started_fmt, localId, PID, pPID ); // Before strlen() itself!
 	startedMsg.s_header.s_payload_len = strlen( startedMsg.s_payload );
-	sprintf( startedMsg.s_payload, log_started_fmt, localId, PID, pPID );
 
 	// Log STARTED message
-	write( 1, startedMsg.s_payload, strlen( startedMsg.s_payload ) );
-	write( eventsLog, startedMsg.s_payload, strlen( startedMsg.s_payload ) );
+	write( 1, startedMsg.s_payload, startedMsg.s_header.s_payload_len );
+	write( eventsLog, startedMsg.s_payload, startedMsg.s_header.s_payload_len );
 
 	// Send STARTED message to all the neighbours
 	if ( send_multicast( NULL, &startedMsg ) == IPC_FAILURE ) {
@@ -125,12 +125,12 @@ void ChildProcess() {
 	Message doneMsg;
 	doneMsg.s_header.s_type = DONE;
 	doneMsg.s_header.s_magic = MESSAGE_MAGIC;
-	doneMsg.s_header.s_payload_len = strlen( doneMsg.s_payload );
 	sprintf( doneMsg.s_payload, log_done_fmt, localId );
+	doneMsg.s_header.s_payload_len = strlen( doneMsg.s_payload );
 
 	// Log DONE message
-	write( 1, doneMsg.s_payload, strlen( doneMsg.s_payload ) );
-	write( eventsLog, doneMsg.s_payload, strlen( doneMsg.s_payload ) );
+	write( 1, doneMsg.s_payload, doneMsg.s_header.s_payload_len );
+	write( eventsLog, doneMsg.s_payload, doneMsg.s_header.s_payload_len );
 
 	// Send DONE message to all the neighbours
 	if ( send_multicast( NULL, &doneMsg ) == IPC_FAILURE ) {
@@ -279,7 +279,8 @@ void makePipeLog() {
 
 int send( void * self, local_id dst, const Message * msg) {
 
-	ssize_t wasWrite = write( pipes[ localId ][ dst ][ 1 ], msg, sizeof( Message ) );
+	ssize_t wasWrite = write( pipes[ localId ][ dst ][ 1 ], msg, sizeof( MessageHeader ) +
+		msg -> s_header.s_payload_len );
 
 	// printf( "Send %d bytes from %d to %d\n", wasWrite, localId, dst );
 
@@ -305,7 +306,11 @@ int send_multicast( void * self, const Message * msg ) {
 
 int receive( void * self, local_id from, Message * msg ) {
 
-	ssize_t wasRead = read( pipes[ from ][ localId ][ 0 ], msg, sizeof( Message ) );
+	// Read the header of the message (default size)
+	ssize_t wasRead = read( pipes[ from ][ localId ][ 0 ], &( msg -> s_header ), sizeof( MessageHeader ) );
+
+	// Read the rest part of the message which size has been known from the header
+	wasRead += read( pipes[ from ][ localId ][ 0 ], &( msg -> s_payload ), msg -> s_header.s_payload_len );
 
 	// if( wasRead > 0 ) printf( "Receive %d bytes by %d proc from %d proc\n", wasRead, localId, from );
 
@@ -316,7 +321,6 @@ int receive( void * self, local_id from, Message * msg ) {
 
 int receive_any( void * self, Message * msg ) {
 
-	// TODO: not 4Kb reading
 	static local_id sender = PARENT_ID + 1;
 
 	if( sender == localId ) {
