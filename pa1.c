@@ -1,247 +1,78 @@
-#include "pa1.h"
-#include "ipc.h"
-#include "common.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <getopt.h>
-
-#define NUMBER_OF_PROCESS 2
-#define BUF_SIZE 100
-#define IPC_SUCCESS 0
-#define IPC_FAILURE -1
-
-int getNumberOfProcess( int argc, char * const argv[] );
-void ChildProcess();
-void ParentProcess();
-void makePipeLog();
-int pipes[ MAX_PROCESS_ID + 1 ][ MAX_PROCESS_ID + 1][ 2 ];
-int eventsLog;
-int pipesLog;
-int nProc;
-local_id localId;
-char logBuf[100];
-
+#include "la1.h"
 
 int main( int argc, char * argv[] ) {
 
-	eventsLog = open( evengs_log, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND );
-	pipesLog = open( pipes_log, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND );
+	EventsLog = open( evengs_log, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND );
+	PipesLog = open( pipes_log, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND );
 
-	nProc = getNumberOfProcess( argc, argv );
+	int procTotal = getNumberOfProcess( argc, argv );
 
+	createFullyConnectedTopology( procTotal );
 
-	// Create fully-connected topology with excess of duplex pipes
-	for ( int row = 0; row <= nProc; row++ ) {
-		for ( int col = 0; col <= nProc; col++ ) {
-			if ( row == col ) continue;
-			pipe( pipes[ row ][ col ] );
-		}
-	}
+	makePipeLog( procTotal );
 
-	makePipeLog();
-
-	// Create a brood of process
-	for ( int i = 1; i <= nProc; i++ ) {
-		if ( fork() == 0 ) {
-			localId = i;
-			ChildProcess();
-			break; // Not to do fork() from the child
-		} else if ( i == nProc ) { // The last child has been created
-			localId = PARENT_ID;
-			ParentProcess();
-		}
-	}
+	makeChildren( procTotal );
 
 	return 0;
 }
 
 
-void ChildProcess() {
+void childProcess( const Process * const proc ) {
 
-	// Close unused pipes
-	for ( int row = 0; row <= nProc; row++ ) {
-		for ( int col = 0; col <= nProc; col++ ) {
-			if ( row == col ) continue;
-			if ( row == localId ) {
-				close( pipes[ row ][ col ][ 0 ] );
-			} else {
-				close( pipes[ row ][ col ][ 1 ] );
-				if ( col != localId ) {
-					close( pipes[ row ][ col ][ 0 ] );
-				}
-			}
-		}
-	}
+	closeUnusedPipes( proc );
 
-	pid_t PID = getpid();
-	pid_t pPID = getppid();
-
-	// Create STARTED message
+	// STARTED
 	Message startedMsg;
-	startedMsg.s_header.s_type = STARTED;
-	startedMsg.s_header.s_magic = MESSAGE_MAGIC;
-	sprintf( startedMsg.s_payload, log_started_fmt, localId, PID, pPID ); // Before strlen() itself!
-	startedMsg.s_header.s_payload_len = strlen( startedMsg.s_payload );
-
-	// Log STARTED message
-	write( 1, startedMsg.s_payload, startedMsg.s_header.s_payload_len );
-	write( eventsLog, startedMsg.s_payload, startedMsg.s_header.s_payload_len );
-
-	// Send STARTED message to all the neighbours
-	if ( send_multicast( NULL, &startedMsg ) == IPC_FAILURE ) {
-		printf( "Multicast error in Process %d (%d)\n", localId, PID );
+	fillMessage( &startedMsg, STARTED, proc -> localId );
+	makeLogging( startedMsg.s_payload, startedMsg.s_header.s_payload_len );
+	if ( send_multicast( ( void * )proc, &startedMsg ) == IPC_FAILURE ) {
+		printf( "Multicast error in Process %d\n", proc -> localId );
 		exit( 1 );
 	}
 
+	// Receive STARTED
+	receiveAll( ( void * )proc, STARTED, proc -> total - 1 );
+	sprintf( LogBuf, log_received_all_started_fmt, proc -> localId );
+	makeLogging( LogBuf, strlen( LogBuf ) );
 
-	// Receive STARTED message from all the neighbours
-	Message receivedMsg;
-	int startedProcCounter = 1; // For this one has already been started
-	while ( startedProcCounter != nProc ) {
-		int result = receive_any( NULL, &receivedMsg );
-		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == STARTED ) {
-			startedProcCounter++;
-		} else {
-			printf( "Receive error in Process %d (%d)\n", localId, PID );
-			exit( 1 );
-		}
-	}
-
-
-	// Log RECEIVED STARTED message
-	sprintf( logBuf, log_received_all_started_fmt, localId );
-	write( 1, logBuf, strlen( logBuf ) );
-	write( eventsLog, logBuf, strlen( logBuf ) );
-
-
-
-	// Create DONE message
+	// DONE
 	Message doneMsg;
-	doneMsg.s_header.s_type = DONE;
-	doneMsg.s_header.s_magic = MESSAGE_MAGIC;
-	sprintf( doneMsg.s_payload, log_done_fmt, localId );
-	doneMsg.s_header.s_payload_len = strlen( doneMsg.s_payload );
-
-	// Log DONE message
-	write( 1, doneMsg.s_payload, doneMsg.s_header.s_payload_len );
-	write( eventsLog, doneMsg.s_payload, doneMsg.s_header.s_payload_len );
-
-	// Send DONE message to all the neighbours
-	if ( send_multicast( NULL, &doneMsg ) == IPC_FAILURE ) {
-		printf( "Multicast error in Process %d (%d)\n", localId, PID );
+	fillMessage( &doneMsg, DONE, proc -> localId );
+	makeLogging( doneMsg.s_payload, doneMsg.s_header.s_payload_len );
+	if ( send_multicast( ( void * )proc, &doneMsg ) == IPC_FAILURE ) {
+		printf( "Multicast error in Process %d\n", proc -> localId );
 		exit( 1 );
 	}
 
+	// Receive DONE
+	receiveAll( ( void * )proc, DONE, proc -> total - 1 );
+	sprintf( LogBuf, log_received_all_done_fmt, proc -> localId );
+	makeLogging( LogBuf, strlen( LogBuf ) );
 
-	// Receive DONE message from all the neighbours
-	int doneProcCounter = 1; // For this one has already been started
-	while ( doneProcCounter != nProc ) {
-		int result = receive_any( NULL, &receivedMsg );
-		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == DONE ) {
-			doneProcCounter++;
-		} else {
-			printf( "Receive error in Process %d (%d)\n", localId, PID );
-			exit( 1 );
-		}
-	}
-
-
-	// Log RECEIVED DONE message
-	sprintf( logBuf, log_received_all_done_fmt, localId );
-	write( 1, logBuf, strlen( logBuf ) );
-	write( eventsLog, logBuf, strlen( logBuf ) );
-
-
-	// Close other pipes
-	for ( int i = 0; i <= nProc; i++ ) {
-		if ( i == localId ) continue;
-		close( pipes[ localId ][ i ][ 1 ] );
-		close( pipes[ i ][ localId ][ 0 ] );
-	}
-
-	// printf( "The last sigh of %d (%d) process\n", localId, getpid() );
+	closeOtherPipes( proc );
 }
 
 
-void ParentProcess() {
+void parentProcess( const Process * const proc ) {
 
-	// Close unused pipes
-	for ( int row = 0; row <= nProc; row++ ) {
-		for ( int col = 0; col <= nProc; col++ ) {
-			if ( row == col ) continue;
-			if ( row == localId ) {
-				close( pipes[ row ][ col ][ 0 ] );
-			} else {
-				close( pipes[ row ][ col ][ 1 ] );
-				if ( col != localId ) {
-					close( pipes[ row ][ col ][ 0 ] );
-				}
-			}
-		}
-	}
+	closeUnusedPipes( proc );
 
+	// Receive STARTED
+	receiveAll( ( void * )proc, STARTED, proc -> total );
+	sprintf( LogBuf, log_received_all_started_fmt, proc -> localId );
+	makeLogging( LogBuf, strlen( LogBuf ) );
 
-	// Receive STARTED message from all the children
-	Message receivedMsg;
-	int startedProcCounter = 0;
-	while ( startedProcCounter != nProc ) {
-		int result = receive_any( NULL, &receivedMsg );
-		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == STARTED ) {
-			startedProcCounter++;
-		} else {
-			printf( "Receive 'started' error in Parent process\n" );
-			exit( 1 );
-		}
-	}
+	// Receive DONE
+	receiveAll( ( void * )proc, DONE, proc -> total );
+	sprintf( LogBuf, log_received_all_done_fmt, proc -> localId );
+	makeLogging( LogBuf, strlen( LogBuf ) );
 
-	// Log RECEIVED STARTED message
-	sprintf( logBuf, log_received_all_started_fmt, localId );
-	write( 1, logBuf, strlen( logBuf ) );
-	write( eventsLog, logBuf, strlen( logBuf ) );
+	waitForChildren();
 
-
-	// Receive DONE message from all the neighbours
-	int doneProcCounter = 1; // For this one has already been started
-	while ( doneProcCounter != nProc ) {
-		int result = receive_any( NULL, &receivedMsg );
-		if( result == IPC_SUCCESS && receivedMsg.s_header.s_type == DONE ) {
-			doneProcCounter++;
-		} else {
-			printf( "Receive 'done' error in Parent process\n" );
-			exit( 1 );
-		}
-	}
-
-	// Log RECEIVED DONE message
-	sprintf( logBuf, log_received_all_done_fmt, localId );
-	write( 1, logBuf, strlen( logBuf ) );
-	write( eventsLog, logBuf, strlen( logBuf ) );
-
-
-	// Waiting for all the children
-	int status;
-	pid_t pid;
-	while ( ( pid = wait( &status ) ) != -1 ) {
-		// printf( "Process %d has been done with exit code %d\n", pid, status );
-		if( WIFSIGNALED( status ) ) printf( "!!! Interrupted by signal %d !!!\n", WTERMSIG( status ) );
-    }
-
-	// Close other pipes
-	for ( int i = 0; i <= nProc; i++ ) {
-		if ( i == localId ) continue;
-		close( pipes[ localId ][ i ][ 1 ] );
-		close( pipes[ i ][ localId ][ 0 ] );
-	}
-
-	printf("*** Parent has been done ***\n");
+	closeOtherPipes( proc );
 }
 
+// ================================================================================================
 
 int getNumberOfProcess( int argc, char * const argv[] ) {
 
@@ -255,8 +86,8 @@ int getNumberOfProcess( int argc, char * const argv[] ) {
 		case 'p':
 			numberOfProcess = atoi( optarg );
 			break;
-		};
-	};
+		}
+	}
 
 	if ( numberOfProcess == 0 || numberOfProcess > MAX_PROCESS_ID ) {
 		printf( "Set the default value for the number of child process: %d\n", NUMBER_OF_PROCESS );
@@ -267,79 +98,114 @@ int getNumberOfProcess( int argc, char * const argv[] ) {
 }
 
 
+void createFullyConnectedTopology( const int procTotal ) {
+	for ( int row = 0; row <= procTotal; row++ ) {
+		for ( int col = 0; col <= procTotal; col++ ) {
+			if ( row == col ) continue;
+			pipe( Pipes[ row ][ col ] );
+		}
+	}
+}
 
-void makePipeLog() {
 
+void makePipeLog( const int procTotal ) {
 	char buf[ 10 ];
-
-	for ( int row = 0; row <= nProc; row++ ) {
-
-		for ( int col = 0; col <= nProc; col++ ) {
-			sprintf( buf, "| %3d %3d ", pipes[ row ][ col ][ 0 ], pipes[ row ][ col ][ 1 ] );
-			write( pipesLog, buf, strlen( buf ) );
+	for ( int row = 0; row <= procTotal; row++ ) {
+		for ( int col = 0; col <= procTotal; col++ ) {
+			sprintf( buf, "| %3d %3d ", Pipes[ row ][ col ][ READ ], Pipes[ row ][ col ][ WRITE ] );
+			write( PipesLog, buf, strlen( buf ) );
 		}
-
-		write( pipesLog, "|\n", 2 );
+		write( PipesLog, "|\n", 2 );
 	}
 }
 
 
-int send( void * self, local_id dst, const Message * msg) {
-
-	ssize_t wasWrite = write( pipes[ localId ][ dst ][ 1 ], msg, sizeof( MessageHeader ) +
-		msg -> s_header.s_payload_len );
-
-	// printf( "Send %d bytes from %d to %d\n", wasWrite, localId, dst );
-
-	return ( wasWrite > 0 ) ? IPC_SUCCESS : IPC_FAILURE;
-}
-
-
-
-int send_multicast( void * self, const Message * msg ) {
-
-	int status = IPC_SUCCESS;
-
-	for ( local_id dst = PARENT_ID; dst <= nProc; dst++ ) {
-		if ( dst == localId ) continue;
-		status = send( NULL, dst, msg );
-		if ( status == IPC_FAILURE ) break;
+void makeChildren( const int procTotal ) {
+	for ( int i = 1; i <= procTotal; i++ ) {
+		Process process = { PARENT_ID, procTotal };
+		if ( fork() == 0 ) {
+			process.localId = i;
+			childProcess( &process );
+			break; // Not to do fork() from the child
+		} else if ( i == procTotal ) { // The last child has been created
+			parentProcess( &process );
+		}
 	}
+}
 
-	return status;
+// ================================================================================================
+
+void closeUnusedPipes( const Process * const proc ) {
+	for ( int row = PARENT_ID; row <= proc -> total; row++ ) {
+		for ( int col = PARENT_ID; col <= proc -> total; col++ ) {
+			if ( row == col ) continue;
+			if ( row == proc -> localId ) {
+				close( Pipes[ row ][ col ][ READ ] );
+			} else {
+				close( Pipes[ row ][ col ][ WRITE ] );
+				if ( col != proc -> localId ) {
+					close( Pipes[ row ][ col ][ READ ] );
+				}
+			}
+		}
+	}
 }
 
 
-
-int receive( void * self, local_id from, Message * msg ) {
-
-	// Read the header of the message (default size)
-	ssize_t wasRead = read( pipes[ from ][ localId ][ 0 ], &( msg -> s_header ), sizeof( MessageHeader ) );
-
-	// Read the rest part of the message which size has been known from the header
-	wasRead += read( pipes[ from ][ localId ][ 0 ], &( msg -> s_payload ), msg -> s_header.s_payload_len );
-
-	// if( wasRead > 0 ) printf( "Receive %d bytes by %d proc from %d proc\n", wasRead, localId, from );
-
-	return ( wasRead > 0 ) ? IPC_SUCCESS : IPC_FAILURE;
+void fillMessage( Message * msg, const MessageType msgType, const local_id id ) {
+	switch( msgType ) {
+		case STARTED:
+			sprintf( msg -> s_payload, log_started_fmt, id, getpid(), getppid() );
+			break;
+		case DONE:
+			sprintf( msg -> s_payload, log_done_fmt, id );
+			break;
+		default:
+			sprintf( msg -> s_payload, "Unsupported type of message\n" );
+			break;
+	}
+	msg -> s_header.s_type = msgType;
+	msg -> s_header.s_magic = MESSAGE_MAGIC;
+	msg -> s_header.s_payload_len = strlen( msg -> s_payload );
 }
 
 
+void makeLogging( const char * const buf, const size_t count ) {
+	write( STDOUT_FILENO, buf, count );
+	write( EventsLog, buf, count );
+}
 
-int receive_any( void * self, Message * msg ) {
 
-	static local_id sender = PARENT_ID + 1;
-
-	if( sender == localId ) {
-		if( sender < nProc ) {
-			sender++;
+void receiveAll( void * self, const MessageType msgType, const int expectedNumber ) {
+	Message incomingMsg;
+	int counter = 0;
+	while ( counter != expectedNumber ) {
+		int result = receive_any( self, &incomingMsg );
+		if( result == IPC_SUCCESS && incomingMsg.s_header.s_type == msgType ) {
+			counter++;
 		} else {
-			sender = PARENT_ID + 1;
+			printf( "Receive error in Process %d\n", getpid() );
+			exit( 1 );
 		}
 	}
+}
 
-	// printf( "receive_any by %d proc from %d proc\n", localId, sender );
-	int status = receive( NULL, sender++, msg );
-	if( sender > nProc ) sender = PARENT_ID + 1;
-	return status;
+
+void closeOtherPipes( const Process * const proc ) {
+	for ( int rowOrCol = PARENT_ID; rowOrCol <= proc -> total; rowOrCol++ ) {
+		if ( rowOrCol == proc -> localId ) continue;
+		close( Pipes[ proc -> localId ][ rowOrCol ][ WRITE ] );
+		close( Pipes[ rowOrCol ][ proc -> localId ][ READ ] );
+	}
+}
+
+// ================================================================================================
+
+void waitForChildren() {
+	int status;
+	pid_t pid;
+	while ( ( pid = wait( &status ) ) != -1 ) {
+		// printf( "Process %d has been done with exit code %d\n", pid, status );
+		if( WIFSIGNALED( status ) ) printf( "!!! Interrupted by signal %d !!!\n", WTERMSIG( status ) );
+	}
 }
