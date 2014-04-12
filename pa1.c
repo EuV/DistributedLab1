@@ -126,7 +126,7 @@ void makeChildren( const int procTotal ) {
 		if ( fork() == 0 ) {
 			process.localId = i;
 			childProcess( &process );
-			break; // Not to do fork() from the child
+			break; // To avoid fork() in a child
 		} else if ( i == procTotal ) { // The last child has been created
 			parentProcess( &process );
 		}

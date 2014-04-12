@@ -4,12 +4,12 @@ int send( void * self, local_id dst, const Message * msg) {
 
 	Process * proc = self;
 
-	ssize_t wasWrite = write( Pipes[ proc -> localId ][ dst ][ WRITE ], msg, sizeof( MessageHeader ) +
+	ssize_t wasWritten = write( Pipes[ proc -> localId ][ dst ][ WRITE ], msg, sizeof( MessageHeader ) +
 		msg -> s_header.s_payload_len );
 
-	// printf( "Send %d bytes from %d to %d\n", wasWrite, proc -> localId, dst );
+	// printf( "Send %d bytes from %d to %d\n", wasWritten, proc -> localId, dst );
 
-	return ( wasWrite > 0 ) ? IPC_SUCCESS : IPC_FAILURE;
+	return ( wasWritten > 0 ) ? IPC_SUCCESS : IPC_FAILURE;
 }
 
 
